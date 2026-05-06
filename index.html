@@ -487,7 +487,7 @@ body {
       <div class="hint">留空点保存时会自动创建云端存储</div>
     </div>
     <div class="settings-actions">
-      <button class="btn-primary" onclick="saveSyncConfig()">💾 保存并同步</button>
+      <button class="btn-primary" onclick="saveSyncConfigAction()">💾 保存并同步</button>
       <button class="btn-secondary" onclick="closeSyncSettings()">取消</button>
     </div>
     <div class="settings-actions" style="margin-top:8px;">
@@ -1281,9 +1281,31 @@ async function syncPull() {
   isSyncing = false;
 }
 
+async function testToken(token) {
+  try {
+    const resp = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json'
+      }
+    });
+    if (resp.status === 200) {
+      const scopes = resp.headers.get('x-oauth-scopes') || '';
+      if (!scopes.includes('gist')) {
+        return { ok: false, error: 'Token缺少gist权限，请重新创建Token并勾选gist' };
+      }
+      return { ok: true };
+    }
+    if (resp.status === 401) return { ok: false, error: 'Token无效，请检查是否复制完整' };
+    return { ok: false, error: '验证失败(' + resp.status + ')' };
+  } catch(e) {
+    return { ok: false, error: '网络错误，无法连接GitHub' };
+  }
+}
+
 async function createSyncGist() {
   const config = getSyncConfig();
-  if (!config.token) return null;
+  if (!config.token) return { id: null, error: '未设置Token' };
 
   const payload = {
     calorie_tracker_data: getData(),
@@ -1295,7 +1317,7 @@ async function createSyncGist() {
     const resp = await fetch('https://api.github.com/gists', {
       method: 'POST',
       headers: {
-        'Authorization': `token ${config.token}`,
+        'Authorization': `Bearer ${config.token}`,
         'Accept': 'application/vnd.github+json',
         'Content-Type': 'application/json'
       },
@@ -1306,12 +1328,16 @@ async function createSyncGist() {
       })
     });
 
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      let msg = 'HTTP ' + resp.status;
+      if (resp.status === 401) msg = 'Token无效或已过期';
+      else if (resp.status === 403) msg = 'Token没有gist权限，请在创建Token时勾选gist';
+      return { id: null, error: msg };
+    }
     const gist = await resp.json();
-    return gist.id;
+    return { id: gist.id, error: null };
   } catch(e) {
-    console.error('Create gist failed:', e);
-    return null;
+    return { id: null, error: '网络连接失败，无法访问GitHub' };
   }
 }
 
@@ -1324,10 +1350,21 @@ async function saveSyncConfigAction() {
   const config = getSyncConfig();
   config.token = token;
 
+  // First test token validity
+  // Save token first so createSyncGist can read it
+  saveSyncConfig(config);
+
+  if (!gistId) {
+    showToast('正在验证Token...');
+    const testResult = await testToken(token);
+    if (!testResult.ok) { showToast('Token验证失败: ' + testResult.error); return; }
+  }
+
   if (!gistId) {
     showToast('正在创建云端存储...');
-    gistId = await createSyncGist();
-    if (!gistId) { showToast('创建失败，请检查 Token 权限'); return; }
+    const result = await createSyncGist();
+    if (!result.id) { showToast('创建失败: ' + (result.error || '未知错误')); return; }
+    gistId = result.id;
     document.getElementById('syncGistId').value = gistId;
   }
 
