@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#4CAF50">
+<title>热量记录</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --green: #4CAF50;
+  --green-light: #E8F5E9;
+  --red: #F44336;
+  --orange: #FF9800;
+  --bg: #F5F5F5;
+  --card: #FFFFFF;
+  --text: #212121;
+  --text-secondary: #757575;
+  --border: #E0E0E0;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --radius: 12px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: calc(70px + var(--safe-bottom));
+  max-width: 480px; margin: 0 auto; min-height: 100vh;
+}
+
+.header {
+  background: var(--green); color: #fff; padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.header h1 { font-size: 20px; font-weight: 600; }
+.header-date {
+  font-size: 14px; opacity: 0.9; display: flex; align-items: center; gap: 8px;
+}
+.header-date button {
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; font-size: 16px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+
+.tabs {
+  display: flex; position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; background: var(--card);
+  border-top: 1px solid var(--border); z-index: 100;
+  padding-bottom: var(--safe-bottom);
+}
+.tab {
+  flex: 1; text-align: center; padding: 10px 0; cursor: pointer;
+  font-size: 12px; color: var(--text-secondary); transition: color 0.2s;
+}
+.tab.active { color: var(--green); }
+.tab-icon { font-size: 22px; display: block; }
+
+.content { padding: 16px; }
+.page { display: none; }
+.page.active { display: block; }
+
+.meal-section { margin-bottom: 16px; }
+.meal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--card); border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.meal-header-left { display: flex; align-items: center; gap: 8px; }
+.meal-icon { font-size: 24px; }
+.meal-name { font-size: 16px; font-weight: 600; }
+.meal-cal { font-size: 14px; color: var(--text-secondary); }
+.meal-body { background: var(--card); border-radius: 0 0 var(--radius) var(--radius); }
+.meal-empty { padding: 20px; text-align: center; color: #BDBDBD; font-size: 14px; }
+
+.food-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid #F5F5F5;
+}
+.food-item:last-child { border-bottom: none; }
+.food-info { display: flex; align-items: center; gap: 8px; flex: 1; }
+.food-emoji { font-size: 24px; }
+.food-name { font-size: 15px; }
+.food-qty { font-size: 13px; color: var(--text-secondary); }
+.food-cals { font-size: 15px; font-weight: 600; color: var(--orange); min-width: 60px; text-align: right; }
+.food-del {
+  background: none; border: none; color: #BDBDBD; font-size: 18px;
+  cursor: pointer; padding: 4px 8px; margin-left: 4px;
+}
+
+.meal-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; background: var(--card); border-radius: 0 0 var(--radius) var(--radius);
+}
+.btn-add {
+  background: var(--green-light); color: var(--green); border: none;
+  padding: 8px 16px; border-radius: 20px; font-size: 13px;
+  cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 4px;
+}
+
+.daily-summary {
+  background: var(--card); border-radius: var(--radius); padding: 16px;
+  margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.daily-summary h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+.summary-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; font-size: 14px;
+}
+.summary-row.total {
+  border-top: 2px solid var(--border); margin-top: 8px; padding-top: 12px;
+  font-size: 18px; font-weight: 700;
+}
+.summary-row.total .val { color: var(--green); }
+
+.chart-container {
+  background: var(--card); border-radius: var(--radius); padding: 16px;
+  margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.chart-container h3 { font-size: 15px; margin-bottom: 12px; }
+.chart-wrapper { position: relative; height: 220px; }
+.stats-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.stat-card {
+  background: var(--card); border-radius: var(--radius); padding: 16px;
+  box-shadow: var(--shadow); text-align: center;
+}
+.stat-val { font-size: 28px; font-weight: 700; color: var(--green); }
+.stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+.search-bar {
+  display: flex; gap: 8px; margin-bottom: 12px; position: sticky; top: 64px;
+  background: var(--bg); padding: 8px 0; z-index: 10;
+}
+.search-input {
+  flex: 1; padding: 10px 16px; border: 1px solid var(--border); border-radius: 24px;
+  font-size: 15px; outline: none; background: var(--card);
+}
+.search-input:focus { border-color: var(--green); }
+.cat-filter {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.cat-chip {
+  padding: 6px 14px; border-radius: 16px; font-size: 13px; border: 1px solid var(--border);
+  background: var(--card); cursor: pointer; white-space: nowrap;
+}
+.cat-chip.active { background: var(--green); color: #fff; border-color: var(--green); }
+.food-db-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--card); border-radius: var(--radius);
+  margin-bottom: 8px; cursor: pointer; transition: transform 0.1s;
+}
+.food-db-item:active { transform: scale(0.98); }
+.food-db-item.custom { border-left: 3px solid var(--orange); }
+.food-db-left { display: flex; align-items: center; gap: 10px; }
+.food-db-name { font-size: 15px; font-weight: 500; }
+.food-db-unit { font-size: 12px; color: var(--text-secondary); }
+.food-db-cal { font-size: 14px; color: var(--orange); font-weight: 600; }
+.food-db-del {
+  background: none; border: none; color: #BDBDBD; font-size: 16px;
+  cursor: pointer; padding: 4px 8px;
+}
+
+.custom-food-form {
+  padding: 16px 20px; border-top: 1px solid var(--border); background: #FAFAFA;
+}
+.custom-food-form h4 { font-size: 14px; margin-bottom: 10px; color: var(--text-secondary); }
+.custom-food-row {
+  display: flex; gap: 8px; margin-bottom: 8px; align-items: center;
+}
+.custom-food-row input {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 14px; outline: none; min-width: 0;
+}
+.custom-food-row input:focus { border-color: var(--green); }
+.custom-food-row .cf-name { flex: 2; }
+.custom-food-row .cf-unit { flex: 1; }
+.custom-food-row .cf-cal { width: 70px; }
+.btn-custom-save {
+  width: 100%; padding: 10px; background: var(--orange); color: #fff;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 200;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.modal {
+  background: var(--card); border-radius: 16px 16px 0 0;
+  width: 100%; max-width: 480px; max-height: 85vh;
+  display: flex; flex-direction: column; animation: slideUp 0.25s ease;
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 17px; }
+.modal-close {
+  background: none; border: none; font-size: 24px; cursor: pointer;
+  color: var(--text-secondary); padding: 4px;
+}
+.modal-search { padding: 12px 20px; }
+.modal-search input {
+  width: 100%; padding: 10px 16px; border: 1px solid var(--border);
+  border-radius: 24px; font-size: 15px; outline: none; background: var(--bg);
+}
+.modal-search input:focus { border-color: var(--green); }
+.modal-results { flex: 1; overflow-y: auto; padding: 0 20px; }
+.modal-result-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 0; border-bottom: 1px solid #F5F5F5; cursor: pointer;
+}
+.modal-result-item.selected { background: var(--green-light); margin: 0 -12px; padding: 12px; border-radius: 8px; }
+.modal-add-custom {
+  display: block; width: 100%; padding: 12px; margin: 12px 0;
+  border: 2px dashed var(--border); border-radius: 12px;
+  background: none; color: var(--orange); font-size: 14px;
+  cursor: pointer; text-align: center;
+}
+
+.qty-picker {
+  display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+.qty-picker label { font-size: 14px; }
+.qty-picker input {
+  width: 60px; padding: 8px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 16px; text-align: center; outline: none;
+}
+.qty-picker .unit { font-size: 14px; color: var(--text-secondary); }
+.qty-picker .cal-preview { font-size: 14px; color: var(--orange); font-weight: 600; margin-left: auto; }
+.btn-confirm {
+  width: 100%; padding: 14px; background: var(--green); color: #fff;
+  border: none; font-size: 16px; font-weight: 600; cursor: pointer;
+  border-radius: 0;
+}
+.btn-confirm:disabled { background: #BDBDBD; }
+
+.toast {
+  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+  background: #323232; color: #fff; padding: 10px 24px;
+  border-radius: 20px; font-size: 14px; z-index: 300;
+  animation: fadeInOut 2s ease forwards;
+}
+@keyframes fadeInOut {
+  0% { opacity:0; transform: translateX(-50%) translateY(-10px); }
+  15% { opacity:1; transform: translateX(-50%) translateY(0); }
+  75% { opacity:1; }
+  100% { opacity:0; }
+}
+
+.tag-custom {
+  display: inline-block; background: #FFF3E0; color: var(--orange);
+  font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
+}
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <button class="header-date" onclick="changeDate(-1)" aria-label="前一天">◀</button>
+  <div class="header-date"><span id="dateDisplay">今天</span></div>
+  <button class="header-date" onclick="changeDate(1)" aria-label="后一天">▶</button>
+</div>
+
+<!-- Page: Record -->
+<div class="page active" id="page-record">
+  <div class="content">
+    <div class="daily-summary" id="dailySummary"></div>
+    <div class="meal-section" id="meal-breakfast">
+      <div class="meal-header">
+        <div class="meal-header-left"><span class="meal-icon">🌅</span><span class="meal-name">早餐</span></div>
+        <span class="meal-cal" id="breakfastCal">0 千卡</span>
+      </div>
+      <div class="meal-body" id="breakfastItems"></div>
+      <div class="meal-footer">
+        <span></span>
+        <button class="btn-add" onclick="openAddModal('breakfast')">＋ 添加食物</button>
+      </div>
+    </div>
+    <div class="meal-section" id="meal-lunch">
+      <div class="meal-header">
+        <div class="meal-header-left"><span class="meal-icon">🌞</span><span class="meal-name">午餐</span></div>
+        <span class="meal-cal" id="lunchCal">0 千卡</span>
+      </div>
+      <div class="meal-body" id="lunchItems"></div>
+      <div class="meal-footer">
+        <span></span>
+        <button class="btn-add" onclick="openAddModal('lunch')">＋ 添加食物</button>
+      </div>
+    </div>
+    <div class="meal-section" id="meal-dinner">
+      <div class="meal-header">
+        <div class="meal-header-left"><span class="meal-icon">🌙</span><span class="meal-name">晚餐</span></div>
+        <span class="meal-cal" id="dinnerCal">0 千卡</span>
+      </div>
+      <div class="meal-body" id="dinnerItems"></div>
+      <div class="meal-footer">
+        <span></span>
+        <button class="btn-add" onclick="openAddModal('dinner')">＋ 添加食物</button>
+      </div>
+    </div>
+    <div class="meal-section" id="meal-snacks">
+      <div class="meal-header">
+        <div class="meal-header-left"><span class="meal-icon">🍪</span><span class="meal-name">加餐/零食</span></div>
+        <span class="meal-cal" id="snacksCal">0 千卡</span>
+      </div>
+      <div class="meal-body" id="snacksItems"></div>
+      <div class="meal-footer">
+        <span></span>
+        <button class="btn-add" onclick="openAddModal('snacks')">＋ 添加食物</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Page: Stats -->
+<div class="page" id="page-stats">
+  <div class="content">
+    <div class="stats-cards">
+      <div class="stat-card">
+        <div class="stat-val" id="statAvg">-</div>
+        <div class="stat-label">本周日均 (千卡)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="statMax">-</div>
+        <div class="stat-label">本周最高 (千卡)</div>
+      </div>
+    </div>
+    <div class="chart-container">
+      <h3>📊 近7天热量趋势</h3>
+      <div class="chart-wrapper"><canvas id="chart7"></canvas></div>
+    </div>
+    <div class="chart-container">
+      <h3>📈 近30天热量趋势</h3>
+      <div class="chart-wrapper"><canvas id="chart30"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- Page: Food DB -->
+<div class="page" id="page-foods">
+  <div class="content">
+    <div class="search-bar">
+      <input class="search-input" id="foodSearch" placeholder="搜索食物..." oninput="renderFoodDB()">
+      <button class="btn-add" onclick="showCustomFoodForm()" style="white-space:nowrap;">＋ 自定义</button>
+    </div>
+    <div class="cat-filter" id="catFilter"></div>
+    <div id="foodDBList"></div>
+    <!-- Inline custom food form (hidden by default) -->
+    <div class="custom-food-form hidden" id="dbCustomForm">
+      <h4>✏️ 添加自定义食物</h4>
+      <div class="custom-food-row">
+        <input class="cf-name" id="cfName" placeholder="食物名称">
+        <input class="cf-unit" id="cfUnit" placeholder="单位(如:个,碗)">
+        <input class="cf-cal" id="cfCal" type="number" placeholder="千卡" min="1" step="1">
+      </div>
+      <button class="btn-custom-save" onclick="saveCustomFood()">保存到我的食物库</button>
+      <button style="width:100%;padding:8px;margin-top:4px;border:none;background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;" onclick="document.getElementById('dbCustomForm').classList.add('hidden')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('record')">
+    <span class="tab-icon">📝</span>记录
+  </div>
+  <div class="tab" onclick="switchTab('stats')">
+    <span class="tab-icon">📊</span>统计
+  </div>
+  <div class="tab" onclick="switchTab('foods')">
+    <span class="tab-icon">🥗</span>食物库
+  </div>
+</div>
+
+<!-- Add food modal -->
+<div class="modal-overlay hidden" id="addModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">添加食物</h3>
+      <button class="modal-close" onclick="closeAddModal()">✕</button>
+    </div>
+    <div class="modal-search">
+      <input id="modalSearch" placeholder="搜索食物名称..." oninput="renderModalResults()">
+    </div>
+    <div class="modal-results" id="modalResults"></div>
+    <!-- Inline custom food form in modal -->
+    <div class="custom-food-form hidden" id="modalCustomForm">
+      <h4>✏️ 新建自定义食物</h4>
+      <div class="custom-food-row">
+        <input class="cf-name" id="mcfName" placeholder="食物名称">
+        <input class="cf-unit" id="mcfUnit" placeholder="单位(如:个,碗)">
+        <input class="cf-cal" id="mcfCal" type="number" placeholder="千卡" min="1" step="1">
+      </div>
+      <button class="btn-custom-save" onclick="saveCustomFoodFromModal()">保存并使用</button>
+      <button style="width:100%;padding:8px;margin-top:4px;border:none;background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;" onclick="document.getElementById('modalCustomForm').classList.add('hidden')">取消</button>
+    </div>
+    <div class="qty-picker hidden" id="qtyPicker">
+      <label>数量:</label>
+      <button onclick="changeQty(-1)" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--card);font-size:18px;cursor:pointer;">−</button>
+      <input type="number" id="qtyInput" value="1" min="0.5" step="0.5" oninput="updateCalPreview()">
+      <button onclick="changeQty(1)" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--card);font-size:18px;cursor:pointer;">＋</button>
+      <span class="unit" id="qtyUnit"></span>
+      <span class="cal-preview" id="calPreview"></span>
+    </div>
+    <button class="btn-confirm" id="btnConfirm" onclick="confirmAddFood()" disabled>确认添加</button>
+  </div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script>
+// ===== BUILT-IN FOOD DATABASE =====
+const FOOD_DB = [
+  { id:1, name:'米饭', unit:'碗', cal:200, cat:'主食', emoji:'🍚' },
+  { id:2, name:'馒头', unit:'个', cal:220, cat:'主食', emoji:'🥟' },
+  { id:3, name:'面条', unit:'碗', cal:250, cat:'主食', emoji:'🍜' },
+  { id:4, name:'小米粥', unit:'碗', cal:90, cat:'主食', emoji:'🥣' },
+  { id:5, name:'饺子', unit:'个', cal:40, cat:'主食', emoji:'🥟' },
+  { id:6, name:'包子', unit:'个', cal:150, cat:'主食', emoji:'🥟' },
+  { id:7, name:'油条', unit:'根', cal:270, cat:'主食', emoji:'🥖' },
+  { id:8, name:'全麦面包', unit:'片', cal:70, cat:'主食', emoji:'🍞' },
+  { id:9, name:'红薯', unit:'个', cal:150, cat:'主食', emoji:'🍠' },
+  { id:10, name:'玉米', unit:'根', cal:140, cat:'主食', emoji:'🌽' },
+  { id:11, name:'燕麦片', unit:'碗', cal:180, cat:'主食', emoji:'🥣' },
+  { id:12, name:'烧饼', unit:'个', cal:250, cat:'主食', emoji:'🫓' },
+  { id:13, name:'花卷', unit:'个', cal:180, cat:'主食', emoji:'🥟' },
+  { id:14, name:'粽子', unit:'个', cal:200, cat:'主食', emoji:'🫔' },
+  { id:20, name:'鸡胸肉', unit:'份(100g)', cal:133, cat:'肉类', emoji:'🍗' },
+  { id:21, name:'鸡腿', unit:'个', cal:180, cat:'肉类', emoji:'🍗' },
+  { id:22, name:'猪肉(瘦肉)', unit:'份(100g)', cal:143, cat:'肉类', emoji:'🥩' },
+  { id:23, name:'猪排骨', unit:'份(100g)', cal:264, cat:'肉类', emoji:'🥩' },
+  { id:24, name:'牛肉', unit:'份(100g)', cal:125, cat:'肉类', emoji:'🥩' },
+  { id:25, name:'羊肉', unit:'份(100g)', cal:203, cat:'肉类', emoji:'🥩' },
+  { id:26, name:'鸭肉', unit:'份(100g)', cal:240, cat:'肉类', emoji:'🦆' },
+  { id:27, name:'培根', unit:'片', cal:50, cat:'肉类', emoji:'🥓' },
+  { id:28, name:'火腿肠', unit:'根', cal:130, cat:'肉类', emoji:'🌭' },
+  { id:29, name:'腊肉', unit:'份(100g)', cal:498, cat:'肉类', emoji:'🥩' },
+  { id:40, name:'黄瓜', unit:'根', cal:30, cat:'蔬菜', emoji:'🥒' },
+  { id:41, name:'西红柿', unit:'个', cal:25, cat:'蔬菜', emoji:'🍅' },
+  { id:42, name:'生菜', unit:'份(100g)', cal:15, cat:'蔬菜', emoji:'🥬' },
+  { id:43, name:'菠菜', unit:'份(100g)', cal:23, cat:'蔬菜', emoji:'🥬' },
+  { id:44, name:'白菜', unit:'份(100g)', cal:13, cat:'蔬菜', emoji:'🥬' },
+  { id:45, name:'胡萝卜', unit:'根', cal:40, cat:'蔬菜', emoji:'🥕' },
+  { id:46, name:'西兰花', unit:'份(100g)', cal:34, cat:'蔬菜', emoji:'🥦' },
+  { id:47, name:'土豆', unit:'个', cal:160, cat:'蔬菜', emoji:'🥔' },
+  { id:48, name:'茄子', unit:'根', cal:30, cat:'蔬菜', emoji:'🍆' },
+  { id:49, name:'洋葱', unit:'个', cal:60, cat:'蔬菜', emoji:'🧅' },
+  { id:50, name:'青椒', unit:'个', cal:20, cat:'蔬菜', emoji:'🫑' },
+  { id:51, name:'豆芽', unit:'份(100g)', cal:18, cat:'蔬菜', emoji:'🌱' },
+  { id:52, name:'冬瓜', unit:'份(100g)', cal:12, cat:'蔬菜', emoji:'🍈' },
+  { id:53, name:'南瓜', unit:'份(100g)', cal:26, cat:'蔬菜', emoji:'🎃' },
+  { id:54, name:'芹菜', unit:'份(100g)', cal:14, cat:'蔬菜', emoji:'🥬' },
+  { id:55, name:'蘑菇', unit:'份(100g)', cal:22, cat:'蔬菜', emoji:'🍄' },
+  { id:56, name:'藕', unit:'份(100g)', cal:73, cat:'蔬菜', emoji:'🪷' },
+  { id:60, name:'鸡蛋(煮)', unit:'个', cal:75, cat:'蛋奶', emoji:'🥚' },
+  { id:61, name:'鸡蛋(煎)', unit:'个', cal:110, cat:'蛋奶', emoji:'🍳' },
+  { id:62, name:'牛奶', unit:'杯(250ml)', cal:155, cat:'蛋奶', emoji:'🥛' },
+  { id:63, name:'酸奶', unit:'杯(200ml)', cal:140, cat:'蛋奶', emoji:'🥛' },
+  { id:64, name:'豆浆', unit:'杯(250ml)', cal:80, cat:'蛋奶', emoji:'🥛' },
+  { id:65, name:'豆腐', unit:'份(100g)', cal:76, cat:'蛋奶', emoji:'🧈' },
+  { id:66, name:'奶酪', unit:'片', cal:60, cat:'蛋奶', emoji:'🧀' },
+  { id:80, name:'苹果', unit:'个', cal:95, cat:'水果', emoji:'🍎' },
+  { id:81, name:'香蕉', unit:'根', cal:105, cat:'水果', emoji:'🍌' },
+  { id:82, name:'橙子', unit:'个', cal:62, cat:'水果', emoji:'🍊' },
+  { id:83, name:'葡萄', unit:'串(100g)', cal:69, cat:'水果', emoji:'🍇' },
+  { id:84, name:'西瓜', unit:'片(200g)', cal:60, cat:'水果', emoji:'🍉' },
+  { id:85, name:'草莓', unit:'颗', cal:6, cat:'水果', emoji:'🍓' },
+  { id:86, name:'猕猴桃', unit:'个', cal:42, cat:'水果', emoji:'🥝' },
+  { id:87, name:'梨', unit:'个', cal:85, cat:'水果', emoji:'🍐' },
+  { id:88, name:'桃子', unit:'个', cal:60, cat:'水果', emoji:'🍑' },
+  { id:89, name:'樱桃', unit:'颗', cal:5, cat:'水果', emoji:'🍒' },
+  { id:90, name:'芒果', unit:'个', cal:135, cat:'水果', emoji:'🥭' },
+  { id:100, name:'薯片', unit:'包(50g)', cal:270, cat:'零食', emoji:'🍟' },
+  { id:101, name:'巧克力', unit:'块(20g)', cal:110, cat:'零食', emoji:'🍫' },
+  { id:102, name:'饼干', unit:'片', cal:35, cat:'零食', emoji:'🍪' },
+  { id:103, name:'蛋糕', unit:'块', cal:250, cat:'零食', emoji:'🍰' },
+  { id:104, name:'冰淇淋', unit:'个', cal:200, cat:'零食', emoji:'🍦' },
+  { id:105, name:'坚果(混合)', unit:'把(30g)', cal:180, cat:'零食', emoji:'🥜' },
+  { id:106, name:'可乐', unit:'罐(330ml)', cal:140, cat:'零食', emoji:'🥤' },
+  { id:107, name:'橙汁', unit:'杯(250ml)', cal:110, cat:'零食', emoji:'🧃' },
+  { id:108, name:'啤酒', unit:'罐(330ml)', cal:145, cat:'零食', emoji:'🍺' },
+  { id:109, name:'咖啡(黑)', unit:'杯', cal:5, cat:'零食', emoji:'☕' },
+  { id:110, name:'拿铁咖啡', unit:'杯', cal:150, cat:'零食', emoji:'☕' },
+  { id:111, name:'奶茶', unit:'杯', cal:300, cat:'零食', emoji:'🧋' },
+  { id:120, name:'三文鱼', unit:'份(100g)', cal:208, cat:'水产', emoji:'🐟' },
+  { id:121, name:'虾仁', unit:'份(100g)', cal:99, cat:'水产', emoji:'🦐' },
+  { id:122, name:'带鱼', unit:'份(100g)', cal:127, cat:'水产', emoji:'🐟' },
+  { id:123, name:'鲫鱼', unit:'条', cal:250, cat:'水产', emoji:'🐟' },
+  { id:124, name:'螃蟹', unit:'只', cal:100, cat:'水产', emoji:'🦀' },
+  { id:140, name:'食用油', unit:'勺(10g)', cal:90, cat:'调味', emoji:'🫒' },
+  { id:141, name:'白糖', unit:'勺(5g)', cal:20, cat:'调味', emoji:'🍬' },
+  { id:142, name:'沙拉酱', unit:'勺(15g)', cal:100, cat:'调味', emoji:'🥗' },
+];
+
+// ===== CUSTOM FOODS =====
+function getCustomFoods() {
+  try {
+    const raw = localStorage.getItem('calorie_custom_foods');
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+function saveCustomFoods(foods) {
+  localStorage.setItem('calorie_custom_foods', JSON.stringify(foods));
+}
+
+function getAllFoods() {
+  return [...FOOD_DB, ...getCustomFoods()];
+}
+
+function findFoodById(id) {
+  if (id < 0) return getCustomFoods().find(f => f.id === id);
+  return FOOD_DB.find(f => f.id === id);
+}
+
+function addCustomFood(name, unit, cal) {
+  const foods = getCustomFoods();
+  const id = foods.length > 0 ? Math.min(...foods.map(f => f.id)) - 1 : -1;
+  const newFood = { id, name, unit, cal: parseInt(cal), cat: '自定义', emoji: '🍽️' };
+  foods.push(newFood);
+  saveCustomFoods(foods);
+  return newFood;
+}
+
+function deleteCustomFood(id) {
+  const foods = getCustomFoods().filter(f => f.id !== id);
+  saveCustomFoods(foods);
+}
+
+// ===== APP STATE =====
+let currentDate = getTodayStr();
+let currentMeal = null;
+let selectedFood = null;
+let selectedQty = 1;
+let activeCat = '全部';
+let chart7Instance = null;
+let chart30Instance = null;
+
+// ===== HELPERS =====
+function getTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function fmtDate(dateStr) {
+  const parts = dateStr.split('-');
+  const d = new Date(+parts[0], +parts[1]-1, +parts[2]);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const target = new Date(+parts[0], +parts[1]-1, +parts[2]); target.setHours(0,0,0,0);
+  const diff = (today - target) / 86400000;
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  if (diff === -1) return '明天';
+  const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+  return `${parts[1]}月${parts[2]}日 ${weekdays[d.getDay()]}`;
+}
+
+function getData() {
+  try {
+    const raw = localStorage.getItem('calorie_tracker_data');
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+function saveData(data) {
+  localStorage.setItem('calorie_tracker_data', JSON.stringify(data));
+}
+
+function getDayData(dateStr) {
+  const data = getData();
+  return data[dateStr] || { breakfast:[], lunch:[], dinner:[], snacks:[] };
+}
+
+function setDayData(dateStr, dayData) {
+  const data = getData();
+  data[dateStr] = dayData;
+  saveData(data);
+}
+
+function mealCal(mealItems) {
+  return mealItems.reduce((sum, item) => sum + item.calories * item.qty, 0);
+}
+
+function totalDayCal(dayData) {
+  return mealCal(dayData.breakfast) + mealCal(dayData.lunch) + mealCal(dayData.dinner) + mealCal(dayData.snacks);
+}
+
+function showToast(msg) {
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = 'toast'; el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+// ===== RENDER =====
+function renderAll() {
+  renderHeader();
+  renderDailySummary();
+  renderMeal('breakfast');
+  renderMeal('lunch');
+  renderMeal('dinner');
+  renderMeal('snacks');
+}
+
+function renderHeader() {
+  document.getElementById('dateDisplay').textContent = fmtDate(currentDate);
+}
+
+function renderDailySummary() {
+  const dayData = getDayData(currentDate);
+  const total = totalDayCal(dayData);
+  const bCal = mealCal(dayData.breakfast);
+  const lCal = mealCal(dayData.lunch);
+  const dCal = mealCal(dayData.dinner);
+  const sCal = mealCal(dayData.snacks);
+  document.getElementById('dailySummary').innerHTML = `
+    <h3>📋 今日总览</h3>
+    <div class="summary-row"><span>🌅 早餐</span><span>${bCal} 千卡</span></div>
+    <div class="summary-row"><span>🌞 午餐</span><span>${lCal} 千卡</span></div>
+    <div class="summary-row"><span>🌙 晚餐</span><span>${dCal} 千卡</span></div>
+    <div class="summary-row"><span>🍪 加餐</span><span>${sCal} 千卡</span></div>
+    <div class="summary-row total"><span>总计</span><span class="val">${total} 千卡</span></div>
+  `;
+}
+
+function renderMeal(meal) {
+  const dayData = getDayData(currentDate);
+  const items = dayData[meal] || [];
+  const cal = mealCal(items);
+
+  document.getElementById(`${meal}Cal`).textContent = `${cal} 千卡`;
+
+  const body = document.getElementById(`${meal}Items`);
+  if (items.length === 0) {
+    body.innerHTML = `<div class="meal-empty">还没有记录，点击下方按钮添加</div>`;
+    return;
+  }
+
+  body.innerHTML = items.map((item, idx) => {
+    const food = findFoodById(item.foodId);
+    const emoji = food ? food.emoji : '🍽️';
+    const isCustom = item.foodId < 0;
+    return `
+      <div class="food-item">
+        <div class="food-info">
+          <span class="food-emoji">${emoji}</span>
+          <div>
+            <div class="food-name">${item.name}${isCustom ? '<span class="tag-custom">自定义</span>' : ''}</div>
+            <div class="food-qty">${item.qty} ${item.unit}</div>
+          </div>
+        </div>
+        <span class="food-cals">${item.calories * item.qty} 千卡</span>
+        <button class="food-del" onclick="deleteFood('${meal}', ${idx})" aria-label="删除">🗑</button>
+      </div>
+    `;
+  }).join('');
+}
+
+// ===== FOOD CRUD =====
+function deleteFood(meal, idx) {
+  const dayData = getDayData(currentDate);
+  dayData[meal].splice(idx, 1);
+  setDayData(currentDate, dayData);
+  renderAll();
+}
+
+function openAddModal(meal) {
+  currentMeal = meal;
+  selectedFood = null;
+  selectedQty = 1;
+  document.getElementById('addModal').classList.remove('hidden');
+  document.getElementById('modalSearch').value = '';
+  document.getElementById('qtyPicker').classList.add('hidden');
+  document.getElementById('modalCustomForm').classList.add('hidden');
+  document.getElementById('btnConfirm').disabled = true;
+  renderModalResults();
+}
+
+function closeAddModal() {
+  document.getElementById('addModal').classList.add('hidden');
+  document.getElementById('modalCustomForm').classList.add('hidden');
+  currentMeal = null;
+  selectedFood = null;
+}
+
+function renderModalResults() {
+  const query = document.getElementById('modalSearch').value.trim().toLowerCase();
+  const results = document.getElementById('modalResults');
+  const allFoods = getAllFoods();
+
+  let filtered = allFoods;
+  if (query) {
+    filtered = allFoods.filter(f =>
+      f.name.includes(query) || f.cat.includes(query)
+    );
+  }
+
+  let html = '';
+
+  if (filtered.length === 0 && query) {
+    html += `<div style="text-align:center;padding:20px;color:#BDBDBD;">未找到"${query}"，可以新建自定义食物</div>`;
+  } else {
+    html += filtered.map(f => `
+      <div class="modal-result-item${selectedFood && selectedFood.id === f.id ? ' selected' : ''}"
+           onclick="selectFood(${f.id})">
+        <div class="food-db-left">
+          <span class="food-emoji">${f.emoji}</span>
+          <div>
+            <div class="food-db-name">${f.name}${f.id < 0 ? '<span class="tag-custom">自定义</span>' : ''}</div>
+            <div class="food-db-unit">${f.unit} · ${f.cat}</div>
+          </div>
+        </div>
+        <span class="food-db-cal">${f.cal} 千卡</span>
+      </div>
+    `).join('');
+  }
+
+  html += `
+    <button class="modal-add-custom" onclick="showModalCustomForm()">
+      ＋ 新建自定义食物
+    </button>
+  `;
+
+  results.innerHTML = html;
+}
+
+function selectFood(foodId) {
+  selectedFood = findFoodById(foodId);
+  selectedQty = 1;
+  document.getElementById('qtyInput').value = 1;
+  document.getElementById('qtyUnit').textContent = selectedFood.unit;
+  document.getElementById('qtyPicker').classList.remove('hidden');
+  document.getElementById('modalCustomForm').classList.add('hidden');
+  document.getElementById('btnConfirm').disabled = false;
+  updateCalPreview();
+  renderModalResults();
+}
+
+function showModalCustomForm() {
+  selectedFood = null;
+  document.getElementById('qtyPicker').classList.add('hidden');
+  document.getElementById('btnConfirm').disabled = true;
+  document.getElementById('modalCustomForm').classList.remove('hidden');
+  document.getElementById('mcfName').value = document.getElementById('modalSearch').value || '';
+  document.getElementById('mcfUnit').value = '';
+  document.getElementById('mcfCal').value = '';
+  document.getElementById('mcfName').focus();
+}
+
+function saveCustomFoodFromModal() {
+  const name = document.getElementById('mcfName').value.trim();
+  const unit = document.getElementById('mcfUnit').value.trim();
+  const cal = document.getElementById('mcfCal').value;
+
+  if (!name) { showToast('请输入食物名称'); return; }
+  if (!unit) { showToast('请输入单位'); return; }
+  if (!cal || parseInt(cal) <= 0) { showToast('请输入有效热量'); return; }
+
+  const food = addCustomFood(name, unit, cal);
+  document.getElementById('modalCustomForm').classList.add('hidden');
+  selectFood(food.id);
+  showToast(`已创建自定义食物：${name}`);
+}
+
+function changeQty(delta) {
+  selectedQty = Math.max(0.5, selectedQty + delta * 0.5);
+  selectedQty = Math.round(selectedQty * 2) / 2;
+  document.getElementById('qtyInput').value = selectedQty;
+  updateCalPreview();
+}
+
+function updateCalPreview() {
+  const qty = parseFloat(document.getElementById('qtyInput').value) || 0;
+  selectedQty = qty;
+  if (selectedFood) {
+    document.getElementById('calPreview').textContent = `≈ ${Math.round(selectedFood.cal * qty)} 千卡`;
+  }
+}
+
+function confirmAddFood() {
+  if (!selectedFood || !currentMeal) return;
+  const qty = parseFloat(document.getElementById('qtyInput').value) || 1;
+  const dayData = getDayData(currentDate);
+  dayData[currentMeal].push({
+    foodId: selectedFood.id,
+    name: selectedFood.name,
+    unit: selectedFood.unit,
+    qty: qty,
+    calories: selectedFood.cal
+  });
+  setDayData(currentDate, dayData);
+  closeAddModal();
+  renderAll();
+  showToast(`已添加 ${selectedFood.name} ×${qty}`);
+}
+
+// ===== DATE NAVIGATION =====
+function changeDate(delta) {
+  const parts = currentDate.split('-');
+  const d = new Date(+parts[0], +parts[1]-1, +parts[2]);
+  d.setDate(d.getDate() + delta);
+  currentDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  renderAll();
+}
+
+// ===== TAB SWITCHING =====
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+  if (tab === 'record') {
+    document.getElementById('page-record').classList.add('active');
+    document.querySelector('.tab:nth-child(1)').classList.add('active');
+    renderAll();
+  } else if (tab === 'stats') {
+    document.getElementById('page-stats').classList.add('active');
+    document.querySelector('.tab:nth-child(2)').classList.add('active');
+    renderStats();
+  } else if (tab === 'foods') {
+    document.getElementById('page-foods').classList.add('active');
+    document.querySelector('.tab:nth-child(3)').classList.add('active');
+    renderFoodDB();
+  }
+}
+
+// ===== STATS =====
+function getDaysRange(days) {
+  const result = [];
+  const d = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(d);
+    date.setDate(date.getDate() - i);
+    result.push(`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`);
+  }
+  return result;
+}
+
+function renderStats() {
+  const allData = getData();
+
+  const days7 = getDaysRange(7);
+  const cals7 = days7.map(d => {
+    const dd = allData[d];
+    return dd ? totalDayCal(dd) : 0;
+  });
+  const avg7 = Math.round(cals7.reduce((a,b) => a+b, 0) / 7);
+  const max7 = Math.max(...cals7);
+
+  document.getElementById('statAvg').textContent = avg7 || '-';
+  document.getElementById('statMax').textContent = max7 || '-';
+
+  const labels7 = days7.map(d => {
+    const parts = d.split('-');
+    return `${+parts[1]}/${+parts[2]}`;
+  });
+  const ctx7 = document.getElementById('chart7').getContext('2d');
+  if (chart7Instance) chart7Instance.destroy();
+  chart7Instance = new Chart(ctx7, {
+    type: 'bar',
+    data: {
+      labels: labels7,
+      datasets: [{
+        label: '总热量 (千卡)',
+        data: cals7,
+        backgroundColor: cals7.map(v => v > 2500 ? '#FF9800' : '#4CAF50'),
+        borderRadius: 8,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.raw + ' 千卡' } }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => v + ' kcal' }
+        }
+      }
+    }
+  });
+
+  const days30 = getDaysRange(30);
+  const cals30 = days30.map(d => {
+    const dd = allData[d];
+    return dd ? totalDayCal(dd) : 0;
+  });
+  const labels30 = days30.map(d => {
+    const parts = d.split('-');
+    return `${+parts[1]}/${+parts[2]}`;
+  });
+  const ctx30 = document.getElementById('chart30').getContext('2d');
+  if (chart30Instance) chart30Instance.destroy();
+  chart30Instance = new Chart(ctx30, {
+    type: 'line',
+    data: {
+      labels: labels30,
+      datasets: [{
+        label: '总热量 (千卡)',
+        data: cals30,
+        borderColor: '#4CAF50',
+        backgroundColor: 'rgba(76,175,80,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.raw + ' 千卡' } }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => v + ' kcal' }
+        },
+        x: {
+          ticks: { maxTicksLimit: 10 }
+        }
+      }
+    }
+  });
+}
+
+// ===== FOOD DB PAGE =====
+function renderFoodDB() {
+  const allFoods = getAllFoods();
+  const customFoods = getCustomFoods();
+  // Categories include 自定义 if there are custom foods
+  const builtInCats = [...new Set(FOOD_DB.map(f => f.cat))];
+  const cats = ['全部', ...builtInCats];
+  if (customFoods.length > 0) cats.push('自定义');
+
+  document.getElementById('catFilter').innerHTML = cats.map(c => `
+    <span class="cat-chip${c === activeCat ? ' active' : ''}" onclick="setCat('${c}')">${c}</span>
+  `).join('');
+
+  const query = document.getElementById('foodSearch').value.trim().toLowerCase();
+  let filtered = allFoods;
+  if (activeCat !== '全部') {
+    filtered = filtered.filter(f => f.cat === activeCat);
+  }
+  if (query) {
+    filtered = filtered.filter(f => f.name.includes(query) || f.cat.includes(query));
+  }
+
+  if (filtered.length === 0) {
+    document.getElementById('foodDBList').innerHTML = `<div style="text-align:center;padding:40px;color:#BDBDBD;">未找到匹配食物</div>`;
+    return;
+  }
+
+  document.getElementById('foodDBList').innerHTML = filtered.map(f => {
+    const isCustom = f.id < 0;
+    return `
+      <div class="food-db-item${isCustom ? ' custom' : ''}" onclick="quickAddFood(${f.id})">
+        <div class="food-db-left">
+          <span class="food-emoji">${f.emoji}</span>
+          <div>
+            <div class="food-db-name">${f.name}${isCustom ? '<span class="tag-custom">自定义</span>' : ''}</div>
+            <div class="food-db-unit">每${f.unit} ${f.cal} 千卡</div>
+          </div>
+        </div>
+        ${isCustom
+          ? `<button class="food-db-del" onclick="event.stopPropagation();removeCustomFood(${f.id})" aria-label="删除">🗑</button>`
+          : `<span style="color:var(--text-secondary);">${f.cat}</span>`}
+      </div>
+    `;
+  }).join('');
+}
+
+function removeCustomFood(id) {
+  deleteCustomFood(id);
+  renderFoodDB();
+  renderAll();
+  showToast('已删除自定义食物');
+}
+
+function setCat(cat) {
+  activeCat = cat;
+  renderFoodDB();
+}
+
+function showCustomFoodForm() {
+  const form = document.getElementById('dbCustomForm');
+  form.classList.remove('hidden');
+  document.getElementById('cfName').value = '';
+  document.getElementById('cfUnit').value = '';
+  document.getElementById('cfCal').value = '';
+  document.getElementById('cfName').focus();
+}
+
+function saveCustomFood() {
+  const name = document.getElementById('cfName').value.trim();
+  const unit = document.getElementById('cfUnit').value.trim();
+  const cal = document.getElementById('cfCal').value;
+
+  if (!name) { showToast('请输入食物名称'); return; }
+  if (!unit) { showToast('请输入单位（如：个、碗、根）'); return; }
+  if (!cal || parseInt(cal) <= 0) { showToast('请输入有效热量（千卡）'); return; }
+
+  addCustomFood(name, unit, cal);
+  document.getElementById('dbCustomForm').classList.add('hidden');
+  renderFoodDB();
+  showToast(`已添加自定义食物：${name}`);
+}
+
+function quickAddFood(foodId) {
+  const food = findFoodById(foodId);
+  if (!food) return;
+
+  const meals = [
+    { key: 'breakfast', name: '早餐 🌅' },
+    { key: 'lunch', name: '午餐 🌞' },
+    { key: 'dinner', name: '晚餐 🌙' },
+    { key: 'snacks', name: '加餐 🍪' },
+  ];
+
+  const mealSelect = document.createElement('div');
+  mealSelect.style.cssText = `
+    position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);
+    z-index:250;display:flex;align-items:center;justify-content:center;
+  `;
+  mealSelect.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:20px;width:280px;">
+      <h3 style="margin-bottom:16px;text-align:center;">添加到哪一餐？</h3>
+      <div style="font-size:16px;margin-bottom:16px;text-align:center;">
+        ${food.emoji} ${food.name} ×1 ${food.unit}<br>
+        <span style="color:var(--orange);font-weight:600;">${food.cal} 千卡</span>
+      </div>
+      ${meals.map(m => `
+        <button style="display:block;width:100%;padding:12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);font-size:15px;cursor:pointer;"
+                onclick="doQuickAdd(${foodId}, '${m.key}');this.parentElement.parentElement.remove();">${m.name}</button>
+      `).join('')}
+      <button style="display:block;width:100%;padding:12px;border:none;background:none;color:var(--text-secondary);font-size:14px;cursor:pointer;"
+              onclick="this.parentElement.parentElement.remove();">取消</button>
+    </div>
+  `;
+  document.body.appendChild(mealSelect);
+  mealSelect.addEventListener('click', function(e) {
+    if (e.target === this) this.remove();
+  });
+}
+
+function doQuickAdd(foodId, meal) {
+  const food = findFoodById(foodId);
+  if (!food) return;
+  const dayData = getDayData(currentDate);
+  dayData[meal].push({
+    foodId: food.id,
+    name: food.name,
+    unit: food.unit,
+    qty: 1,
+    calories: food.cal
+  });
+  setDayData(currentDate, dayData);
+  renderAll();
+  const mealNames = { breakfast:'早餐', lunch:'午餐', dinner:'晚餐', snacks:'加餐' };
+  showToast(`已添加到${mealNames[meal]}：${food.name}`);
+}
+
+// ===== INIT =====
+document.getElementById('qtyInput').addEventListener('input', updateCalPreview);
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeAddModal();
+});
+
+renderAll();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
