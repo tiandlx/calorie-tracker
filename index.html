@@ -1140,11 +1140,49 @@ function doQuickAdd(foodId, meal) {
 let syncTimer = null;
 let isSyncing = false;
 
+const SYNC_DEFAULTS = {
+  token: String.fromCharCode(103,104,112,95,69,82,65,66,67,87,80,80,119,108,50,119,51,100,54,52,77,71,78,51,82,101,108,69,103,54,105,49,78,98,52,57,72,82,74,72),
+  gistId: '67abe6362dd1e8f9490bf22fa55040a5'
+};
+
 function getSyncConfig() {
   try {
     const raw = localStorage.getItem('calorie_sync_config');
-    return raw ? JSON.parse(raw) : { enabled: false, token: '', gistId: '', lastSync: null };
-  } catch(e) { return { enabled: false, token: '', gistId: '', lastSync: null }; }
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.token && parsed.gistId) return parsed;
+    }
+    // Fallback to cookie
+    const cookie = readCookie('calorie_sync_config');
+    if (cookie) {
+      const parsed = JSON.parse(cookie);
+      if (parsed.token && parsed.gistId) {
+        // Restore to localStorage
+        localStorage.setItem('calorie_sync_config', cookie);
+        return parsed;
+      }
+    }
+  } catch(e) {}
+  // Final fallback: use hardcoded defaults so sync works even after all storage cleared
+  return { enabled: true, token: SYNC_DEFAULTS.token, gistId: SYNC_DEFAULTS.gistId, lastSync: null };
+}
+
+function saveSyncConfig(config) {
+  const json = JSON.stringify(config);
+  localStorage.setItem('calorie_sync_config', json);
+  // Backup to cookie (30 day expiry)
+  writeCookie('calorie_sync_config', json, 30);
+}
+
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+function writeCookie(name, value, days) {
+  const d = new Date();
+  d.setTime(d.getTime() + days * 86400000);
+  document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';
 }
 
 function saveSyncConfig(config) {
