@@ -260,6 +260,58 @@ body {
   font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
 }
 
+.header-settings {
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; font-size: 16px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.sync-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  margin-left: 4px; vertical-align: middle;
+}
+.sync-dot.synced { background: #fff; }
+.sync-dot.syncing { background: #FFD54F; animation: pulse 1s infinite; }
+.sync-dot.error { background: #FF5252; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+.settings-modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 250; display: flex;
+  align-items: center; justify-content: center;
+}
+.settings-modal {
+  background: var(--card); border-radius: 16px; width: 90%; max-width: 400px;
+  padding: 24px; animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
+.settings-modal h3 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.settings-field { margin-bottom: 14px; }
+.settings-field label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+.settings-field input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 14px; outline: none;
+}
+.settings-field input:focus { border-color: var(--green); }
+.settings-field .hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.settings-actions { display: flex; gap: 8px; margin-top: 16px; }
+.btn-primary {
+  flex: 1; padding: 10px; background: var(--green); color: #fff;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.btn-secondary {
+  flex: 1; padding: 10px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.btn-danger {
+  flex: 1; padding: 10px; background: var(--red); color: #fff;
+  border: none; border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.sync-status-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0; border-top: 1px solid var(--border); margin-top: 8px;
+  font-size: 13px; color: var(--text-secondary);
+}
+
 .hidden { display: none !important; }
 </style>
 </head>
@@ -267,8 +319,12 @@ body {
 
 <div class="header">
   <button class="header-date" onclick="changeDate(-1)" aria-label="前一天">◀</button>
-  <div class="header-date"><span id="dateDisplay">今天</span></div>
+  <div class="header-date">
+    <span id="dateDisplay">今天</span>
+    <span class="sync-dot hidden" id="syncDot" title="同步状态"></span>
+  </div>
   <button class="header-date" onclick="changeDate(1)" aria-label="后一天">▶</button>
+  <button class="header-settings" onclick="openSyncSettings()" aria-label="设置">⚙</button>
 </div>
 
 <!-- Page: Record -->
@@ -413,6 +469,35 @@ body {
       <span class="cal-preview" id="calPreview"></span>
     </div>
     <button class="btn-confirm" id="btnConfirm" onclick="confirmAddFood()" disabled>确认添加</button>
+  </div>
+</div>
+
+<!-- Sync Settings Modal -->
+<div class="settings-modal-overlay hidden" id="syncSettingsModal">
+  <div class="settings-modal">
+    <h3>☁️ 云端同步设置</h3>
+    <div class="settings-field">
+      <label>GitHub Token</label>
+      <input id="syncToken" type="password" placeholder="ghp_xxxxxxxxxxxx">
+      <div class="hint">需要 <b>gist</b> 权限。在手机和电脑上填入同一个 Token</div>
+    </div>
+    <div class="settings-field">
+      <label>Gist ID（自动创建可留空）</label>
+      <input id="syncGistId" placeholder="留空则自动创建">
+      <div class="hint">留空点保存时会自动创建云端存储</div>
+    </div>
+    <div class="settings-actions">
+      <button class="btn-primary" onclick="saveSyncConfig()">💾 保存并同步</button>
+      <button class="btn-secondary" onclick="closeSyncSettings()">取消</button>
+    </div>
+    <div class="settings-actions" style="margin-top:8px;">
+      <button class="btn-secondary" onclick="manualSync()" id="btnManualSync">🔄 手动同步</button>
+      <button class="btn-danger" onclick="disableSync()">断开同步</button>
+    </div>
+    <div class="sync-status-row">
+      <span id="syncStatusLabel">状态：</span>
+      <span id="syncStatusText">未配置</span>
+    </div>
   </div>
 </div>
 
@@ -1075,14 +1160,262 @@ function doQuickAdd(foodId, meal) {
   showToast(`已添加到${mealNames[meal]}：${food.name}`);
 }
 
+// ===== CLOUD SYNC =====
+let syncTimer = null;
+let isSyncing = false;
+
+function getSyncConfig() {
+  try {
+    const raw = localStorage.getItem('calorie_sync_config');
+    return raw ? JSON.parse(raw) : { enabled: false, token: '', gistId: '', lastSync: null };
+  } catch(e) { return { enabled: false, token: '', gistId: '', lastSync: null }; }
+}
+
+function saveSyncConfig(config) {
+  localStorage.setItem('calorie_sync_config', JSON.stringify(config));
+}
+
+function setSyncStatus(status) {
+  const dot = document.getElementById('syncDot');
+  dot.classList.remove('synced', 'syncing', 'error', 'hidden');
+  if (status === 'synced') dot.classList.add('synced');
+  else if (status === 'syncing') dot.classList.add('syncing');
+  else if (status === 'error') dot.classList.add('error');
+  else dot.classList.add('hidden');
+}
+
+function scheduleSync() {
+  const config = getSyncConfig();
+  if (!config.enabled || !config.token || !config.gistId) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncPush, 3000);
+}
+
+async function syncPush() {
+  const config = getSyncConfig();
+  if (!config.enabled || !config.token || !config.gistId || isSyncing) return;
+  isSyncing = true;
+  setSyncStatus('syncing');
+
+  try {
+    const payload = {
+      calorie_tracker_data: getData(),
+      calorie_custom_foods: getCustomFoods(),
+      updated_at: new Date().toISOString()
+    };
+
+    const resp = await fetch(`https://api.github.com/gists/${config.gistId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `token ${config.token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: { 'calorie-data.json': { content: JSON.stringify(payload) } }
+      })
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    config.lastSync = payload.updated_at;
+    saveSyncConfig(config);
+    setSyncStatus('synced');
+    updateSyncUI();
+  } catch(e) {
+    console.error('Sync push failed:', e);
+    setSyncStatus('error');
+  }
+  isSyncing = false;
+}
+
+async function syncPull() {
+  const config = getSyncConfig();
+  if (!config.enabled || !config.token || !config.gistId || isSyncing) return;
+  isSyncing = true;
+  setSyncStatus('syncing');
+
+  try {
+    const resp = await fetch(`https://api.github.com/gists/${config.gistId}`, {
+      headers: {
+        'Authorization': `token ${config.token}`,
+        'Accept': 'application/vnd.github+json'
+      }
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const gist = await resp.json();
+    const file = gist.files && gist.files['calorie-data.json'];
+    if (!file || !file.content) throw new Error('No data file in gist');
+
+    const remote = JSON.parse(file.content);
+    const remoteTime = remote.updated_at || '1970-01-01';
+    const localTime = config.lastSync || '1970-01-01';
+
+    // Merge: remote wins if newer, unless local has no data
+    const localData = getData();
+    const hasLocalData = Object.keys(localData).length > 0;
+
+    if (!hasLocalData || new Date(remoteTime) > new Date(localTime)) {
+      // Remote is newer or local is empty → use remote
+      saveData(remote.calorie_tracker_data || {});
+      saveCustomFoods(remote.calorie_custom_foods || []);
+      config.lastSync = remoteTime;
+      saveSyncConfig(config);
+      renderAll();
+      renderFoodDB();
+      showToast('已从云端同步数据');
+    } else if (new Date(remoteTime) < new Date(localTime) && hasLocalData) {
+      // Local is newer → push local to remote
+      await syncPush();
+      return;
+    }
+
+    setSyncStatus('synced');
+    updateSyncUI();
+  } catch(e) {
+    console.error('Sync pull failed:', e);
+    setSyncStatus('error');
+  }
+  isSyncing = false;
+}
+
+async function createSyncGist() {
+  const config = getSyncConfig();
+  if (!config.token) return null;
+
+  const payload = {
+    calorie_tracker_data: getData(),
+    calorie_custom_foods: getCustomFoods(),
+    updated_at: new Date().toISOString()
+  };
+
+  try {
+    const resp = await fetch('https://api.github.com/gists', {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${config.token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        description: 'Calorie Tracker sync data',
+        public: false,
+        files: { 'calorie-data.json': { content: JSON.stringify(payload) } }
+      })
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const gist = await resp.json();
+    return gist.id;
+  } catch(e) {
+    console.error('Create gist failed:', e);
+    return null;
+  }
+}
+
+async function saveSyncConfigAction() {
+  const token = document.getElementById('syncToken').value.trim();
+  let gistId = document.getElementById('syncGistId').value.trim();
+
+  if (!token) { showToast('请输入 GitHub Token'); return; }
+
+  const config = getSyncConfig();
+  config.token = token;
+
+  if (!gistId) {
+    showToast('正在创建云端存储...');
+    gistId = await createSyncGist();
+    if (!gistId) { showToast('创建失败，请检查 Token 权限'); return; }
+    document.getElementById('syncGistId').value = gistId;
+  }
+
+  config.gistId = gistId;
+  config.enabled = true;
+  saveSyncConfig(config);
+
+  showToast('配置已保存，开始同步...');
+  await syncPull();
+  closeSyncSettings();
+  setSyncStatus('synced');
+}
+
+function disableSync() {
+  const config = getSyncConfig();
+  config.enabled = false;
+  saveSyncConfig(config);
+  setSyncStatus('hidden');
+  updateSyncUI();
+  closeSyncSettings();
+  showToast('已断开云端同步');
+}
+
+function manualSync() {
+  const config = getSyncConfig();
+  if (!config.enabled || !config.token || !config.gistId) {
+    showToast('请先配置同步');
+    return;
+  }
+  showToast('正在同步...');
+  syncPull();
+}
+
+function openSyncSettings() {
+  const config = getSyncConfig();
+  document.getElementById('syncToken').value = config.token || '';
+  document.getElementById('syncGistId').value = config.gistId || '';
+  document.getElementById('syncSettingsModal').classList.remove('hidden');
+  updateSyncUI();
+}
+
+function closeSyncSettings() {
+  document.getElementById('syncSettingsModal').classList.add('hidden');
+}
+
+function updateSyncUI() {
+  const config = getSyncConfig();
+  const el = document.getElementById('syncStatusText');
+  if (config.enabled) {
+    el.textContent = config.lastSync
+      ? `已同步 · ${new Date(config.lastSync).toLocaleString('zh-CN')}`
+      : '已配置 · 等待首次同步';
+  } else {
+    el.textContent = '未配置';
+  }
+}
+
+// Close settings modal on overlay click
+document.addEventListener('click', function(e) {
+  if (e.target.id === 'syncSettingsModal') closeSyncSettings();
+});
+
 // ===== INIT =====
 document.getElementById('qtyInput').addEventListener('input', updateCalPreview);
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeAddModal();
+  if (e.key === 'Escape') { closeAddModal(); closeSyncSettings(); }
 });
 
+// Override save functions to trigger sync
+const _origSaveData = saveData;
+saveData = function(data) {
+  _origSaveData(data);
+  scheduleSync();
+};
+const _origSaveCustomFoods = saveCustomFoods;
+saveCustomFoods = function(foods) {
+  _origSaveCustomFoods(foods);
+  scheduleSync();
+};
+
 renderAll();
+
+// Auto-pull on startup if sync configured
+const _syncConfig = getSyncConfig();
+if (_syncConfig.enabled && _syncConfig.token && _syncConfig.gistId) {
+  syncPull();
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
