@@ -117,6 +117,10 @@ body {
   font-size: 18px; font-weight: 700;
 }
 .summary-row.total .val { color: var(--green); }
+.summary-row.weight-row { border-top: 2px dashed var(--border); margin-top: 8px; padding-top: 12px; }
+.weight-input { width: 80px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 16px; font-weight: 600; text-align: center; color: #1565C0; outline: none; }
+.weight-input:focus { border-color: #1565C0; }
+.weight-unit { font-size: 13px; color: var(--text-secondary); margin-left: 4px; }
 
 .chart-container {
   background: var(--card); border-radius: var(--radius); padding: 16px;
@@ -399,6 +403,20 @@ body {
       <h3>📈 近30天热量趋势</h3>
       <div class="chart-wrapper"><canvas id="chart30"></canvas></div>
     </div>
+    <div class="stats-cards">
+      <div class="stat-card">
+        <div class="stat-val" id="statWeightNow" style="color:#1565C0;">-</div>
+        <div class="stat-label">当前体重 (kg)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="statWeight7d">-</div>
+        <div class="stat-label">7天变化 (kg)</div>
+      </div>
+    </div>
+    <div class="chart-container">
+      <h3>⚖️ 近30天体重趋势</h3>
+      <div class="chart-wrapper"><canvas id="chartWeight30"></canvas></div>
+    </div>
   </div>
 </div>
 
@@ -575,6 +593,42 @@ function saveCustomFoods(foods) {
   localStorage.setItem('calorie_custom_foods', JSON.stringify(foods));
 }
 
+// ===== WEIGHT DATA =====
+function getWeightData() {
+  try {
+    const raw = localStorage.getItem('calorie_weight_data');
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+function saveWeightData(data) {
+  localStorage.setItem('calorie_weight_data', JSON.stringify(data));
+}
+
+function getWeight(dateStr) {
+  const data = getWeightData();
+  return data[dateStr] || null;
+}
+
+function setWeight(dateStr, kg) {
+  const data = getWeightData();
+  if (kg === null || kg === '' || isNaN(kg)) {
+    delete data[dateStr];
+  } else {
+    data[dateStr] = parseFloat(kg);
+  }
+  saveWeightData(data);
+  scheduleSyncWeight();
+}
+
+let weightSyncTimer = null;
+function scheduleSyncWeight() {
+  const config = getSyncConfig();
+  if (!config.enabled || !config.token || !config.gistId) return;
+  if (weightSyncTimer) clearTimeout(weightSyncTimer);
+  weightSyncTimer = setTimeout(syncPush, 3000);
+}
+
 function getAllFoods() {
   return [...FOOD_DB, ...getCustomFoods()];
 }
@@ -606,6 +660,7 @@ let selectedQty = 1;
 let activeCat = '全部';
 let chart7Instance = null;
 let chart30Instance = null;
+let chartWeight30Instance = null;
 
 // ===== HELPERS =====
 function getTodayStr() {
@@ -685,6 +740,7 @@ function renderDailySummary() {
   const lCal = mealCal(dayData.lunch);
   const dCal = mealCal(dayData.dinner);
   const sCal = mealCal(dayData.snacks);
+  const currentWeight = getWeight(currentDate);
   document.getElementById('dailySummary').innerHTML = `
     <h3>📋 今日总览</h3>
     <div class="summary-row"><span>🌅 早餐</span><span>${bCal} 千卡</span></div>
@@ -692,7 +748,33 @@ function renderDailySummary() {
     <div class="summary-row"><span>🌙 晚餐</span><span>${dCal} 千卡</span></div>
     <div class="summary-row"><span>🍪 加餐</span><span>${sCal} 千卡</span></div>
     <div class="summary-row total"><span>总计</span><span class="val">${total} 千卡</span></div>
+    <div class="summary-row weight-row">
+      <span>⚖️ 今日体重</span>
+      <span>
+        <input class="weight-input" id="weightInput" type="number" value="${currentWeight !== null ? currentWeight : ''}" placeholder="点击记录" step="0.1" min="20" max="300" oninput="onWeightInput()" onblur="onWeightBlur()">
+        <span class="weight-unit">kg</span>
+      </span>
+    </div>
   `;
+}
+
+function onWeightInput() {
+  const el = document.getElementById('weightInput');
+  if (!el) return;
+  const val = parseFloat(el.value);
+  if (!isNaN(val) && val > 0) {
+    setWeight(currentDate, val);
+  }
+}
+
+function onWeightBlur() {
+  const el = document.getElementById('weightInput');
+  if (!el) return;
+  const val = el.value.trim();
+  if (val === '' || isNaN(parseFloat(val)) || parseFloat(val) <= 0) {
+    setWeight(currentDate, null);
+    el.value = '';
+  }
 }
 
 function renderMeal(meal) {
@@ -998,6 +1080,68 @@ function renderStats() {
       }
     }
   });
+
+  // Weight stats
+  const weightData = getWeightData();
+  const days30w = getDaysRange(30);
+  const weights30 = days30w.map(d => weightData[d] !== undefined ? weightData[d] : null);
+  const validWeights = weights30.filter(w => w !== null);
+  const latestWeight = validWeights.length > 0 ? validWeights[validWeights.length - 1] : null;
+  document.getElementById('statWeightNow').textContent = latestWeight !== null ? latestWeight.toFixed(1) : '-';
+
+  const days7w = getDaysRange(7);
+  const weights7 = days7w.map(d => weightData[d] !== undefined ? weightData[d] : null);
+  const valid7 = weights7.filter(w => w !== null);
+  if (valid7.length >= 2) {
+    const diff7 = valid7[valid7.length - 1] - valid7[0];
+    const sign = diff7 > 0 ? '+' : '';
+    document.getElementById('statWeight7d').textContent = sign + diff7.toFixed(1);
+    document.getElementById('statWeight7d').style.color = diff7 > 0 ? '#F44336' : diff7 < 0 ? '#4CAF50' : 'inherit';
+  } else {
+    document.getElementById('statWeight7d').textContent = '-';
+    document.getElementById('statWeight7d').style.color = 'inherit';
+  }
+
+  const labelsWeight30 = days30w.map(d => {
+    const parts = d.split('-');
+    return `${+parts[1]}/${+parts[2]}`;
+  });
+  const ctxW30 = document.getElementById('chartWeight30').getContext('2d');
+  if (chartWeight30Instance) chartWeight30Instance.destroy();
+  chartWeight30Instance = new Chart(ctxW30, {
+    type: 'line',
+    data: {
+      labels: labelsWeight30,
+      datasets: [{
+        label: '体重 (kg)',
+        data: weights30,
+        borderColor: '#1565C0',
+        backgroundColor: 'rgba(21,101,192,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: weights30.map(w => w !== null ? 4 : 0),
+        pointHoverRadius: 6,
+        pointBackgroundColor: '#1565C0',
+        spanGaps: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.raw !== null ? ctx.raw + ' kg' : '无数据' } }
+      },
+      scales: {
+        y: {
+          ticks: { callback: v => v + ' kg' }
+        },
+        x: {
+          ticks: { maxTicksLimit: 10 }
+        }
+      }
+    }
+  });
 }
 
 // ===== FOOD DB PAGE =====
@@ -1215,6 +1359,7 @@ async function syncPush() {
     const payload = {
       calorie_tracker_data: getData(),
       calorie_custom_foods: getCustomFoods(),
+      calorie_weight_data: getWeightData(),
       updated_at: new Date().toISOString()
     };
 
@@ -1275,6 +1420,7 @@ async function syncPull() {
       // Remote is newer or local is empty → use remote
       saveData(remote.calorie_tracker_data || {});
       saveCustomFoods(remote.calorie_custom_foods || []);
+      saveWeightData(remote.calorie_weight_data || {});
       config.lastSync = remoteTime;
       saveSyncConfig(config);
       renderAll();
@@ -1324,6 +1470,7 @@ async function createSyncGist() {
   const payload = {
     calorie_tracker_data: getData(),
     calorie_custom_foods: getCustomFoods(),
+    calorie_weight_data: getWeightData(),
     updated_at: new Date().toISOString()
   };
 
