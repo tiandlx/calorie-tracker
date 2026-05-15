@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#4CAF50">
-<title>热量记录</title>
+<title>热量记录 v3</title>
 <link rel="manifest" href="manifest.json">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
@@ -410,11 +410,11 @@ body {
       </div>
       <div class="stat-card">
         <div class="stat-val" id="statWeight7d">-</div>
-        <div class="stat-label">7天变化 (kg)</div>
+        <div class="stat-label">累计变化 (kg)</div>
       </div>
     </div>
     <div class="chart-container">
-      <h3>⚖️ 近30天体重趋势</h3>
+      <h3>⚖️ 近30天体重趋势 · v2</h3>
       <div class="chart-wrapper"><canvas id="chartWeight30"></canvas></div>
     </div>
   </div>
@@ -522,6 +522,29 @@ body {
 <div id="toastContainer"></div>
 
 <script>
+// Force-clear old Service Workers & caches
+(function cleanupSW(){
+  var cleaned = sessionStorage.getItem('_sw_cleaned_v3');
+  if (!cleaned) {
+    sessionStorage.setItem('_sw_cleaned_v3', '1');
+    var done = 0;
+    function check() {
+      done++;
+      if (done >= 2) { window.location.reload(); }
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs){
+        Promise.all(regs.map(function(r){ return r.unregister(); })).then(check);
+      });
+    } else { check(); }
+    if ('caches' in self) {
+      caches.keys().then(function(keys){
+        Promise.all(keys.map(function(k){ return caches.delete(k); })).then(check);
+      });
+    } else { check(); }
+  }
+})();
+
 // ===== BUILT-IN FOOD DATABASE =====
 const FOOD_DB = [
   // ---- 主食 ----
@@ -615,7 +638,7 @@ function setWeight(dateStr, kg) {
   if (kg === null || kg === '' || isNaN(kg)) {
     delete data[dateStr];
   } else {
-    data[dateStr] = parseFloat(kg);
+    data[dateStr] = Math.round(parseFloat(kg) * 10) / 10;
   }
   saveWeightData(data);
   scheduleSyncWeight();
@@ -1084,19 +1107,20 @@ function renderStats() {
   // Weight stats
   const weightData = getWeightData();
   const days30w = getDaysRange(30);
-  const weights30 = days30w.map(d => weightData[d] !== undefined ? weightData[d] : null);
+  const weights30 = days30w.map(d => weightData[d] !== undefined ? Math.round(weightData[d] * 10) / 10 : null);
   const validWeights = weights30.filter(w => w !== null);
   const latestWeight = validWeights.length > 0 ? validWeights[validWeights.length - 1] : null;
   document.getElementById('statWeightNow').textContent = latestWeight !== null ? latestWeight.toFixed(1) : '-';
 
-  const days7w = getDaysRange(7);
-  const weights7 = days7w.map(d => weightData[d] !== undefined ? weightData[d] : null);
-  const valid7 = weights7.filter(w => w !== null);
-  if (valid7.length >= 2) {
-    const diff7 = valid7[valid7.length - 1] - valid7[0];
-    const sign = diff7 > 0 ? '+' : '';
-    document.getElementById('statWeight7d').textContent = sign + diff7.toFixed(1);
-    document.getElementById('statWeight7d').style.color = diff7 > 0 ? '#F44336' : diff7 < 0 ? '#4CAF50' : 'inherit';
+  // All-time weight change: first recorded - current
+  const allDates = Object.keys(weightData).sort();
+  if (allDates.length >= 2) {
+    const firstWeight = Math.round(weightData[allDates[0]] * 10) / 10;
+    const latestWeightFromAll = Math.round(weightData[allDates[allDates.length - 1]] * 10) / 10;
+    const diffAll = firstWeight - latestWeightFromAll;
+    const sign = diffAll > 0 ? '-' : diffAll < 0 ? '+' : '';
+    document.getElementById('statWeight7d').textContent = sign + Math.abs(diffAll).toFixed(1);
+    document.getElementById('statWeight7d').style.color = diffAll > 0 ? '#4CAF50' : diffAll < 0 ? '#F44336' : 'inherit';
   } else {
     document.getElementById('statWeight7d').textContent = '-';
     document.getElementById('statWeight7d').style.color = 'inherit';
@@ -1108,6 +1132,11 @@ function renderStats() {
   });
   const ctxW30 = document.getElementById('chartWeight30').getContext('2d');
   if (chartWeight30Instance) chartWeight30Instance.destroy();
+
+  const yMin = validWeights.length > 0 ? Math.floor(Math.min(...validWeights) * 2) / 2 : 60;
+  const yMax = validWeights.length > 0 ? Math.ceil(Math.max(...validWeights) * 2) / 2 : 80;
+  const yStep = Math.max(0.5, Math.round((yMax - yMin) / 5 * 2) / 2);
+
   chartWeight30Instance = new Chart(ctxW30, {
     type: 'line',
     data: {
@@ -1130,11 +1159,16 @@ function renderStats() {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ctx.raw !== null ? ctx.raw + ' kg' : '无数据' } }
+        tooltip: { callbacks: { label: ctx => ctx.raw !== null ? ctx.raw.toFixed(1) + ' kg' : '无数据' } }
       },
       scales: {
         y: {
-          ticks: { callback: v => v + ' kg' }
+          min: yMin,
+          max: yMax,
+          ticks: {
+            stepSize: yStep,
+            callback: v => Number(v).toFixed(1) + ' kg'
+          }
         },
         x: {
           ticks: { maxTicksLimit: 10 }
@@ -1420,7 +1454,14 @@ async function syncPull() {
       // Remote is newer or local is empty → use remote
       saveData(remote.calorie_tracker_data || {});
       saveCustomFoods(remote.calorie_custom_foods || []);
-      saveWeightData(remote.calorie_weight_data || {});
+      // Round weight values from remote to 1 decimal
+      const remoteWeights = remote.calorie_weight_data || {};
+      for (const k of Object.keys(remoteWeights)) {
+        if (typeof remoteWeights[k] === 'number') {
+          remoteWeights[k] = Math.round(remoteWeights[k] * 10) / 10;
+        }
+      }
+      saveWeightData(remoteWeights);
       config.lastSync = remoteTime;
       saveSyncConfig(config);
       renderAll();
@@ -1595,6 +1636,23 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') { closeAddModal(); closeSyncSettings(); }
 });
 
+// Cleanup: round existing weight data to 1 decimal
+(function cleanupWeightData() {
+  const data = getWeightData();
+  let changed = false;
+  for (const key of Object.keys(data)) {
+    const v = data[key];
+    if (typeof v === 'number') {
+      const rounded = Math.round(v * 10) / 10;
+      if (rounded !== v) {
+        data[key] = rounded;
+        changed = true;
+      }
+    }
+  }
+  if (changed) saveWeightData(data);
+})();
+
 // Override save functions to trigger sync
 const _origSaveData = saveData;
 saveData = function(data) {
@@ -1616,7 +1674,19 @@ if (_syncConfig.enabled && _syncConfig.token && _syncConfig.gistId) {
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js?v=3').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newSW = reg.installing;
+      if (newSW) {
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            newSW.postMessage({ type: 'SKIP_WAITING' });
+            window.location.reload();
+          }
+        });
+      }
+    });
+  }).catch(() => {});
 }
 </script>
 </body>
