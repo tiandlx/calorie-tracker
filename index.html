@@ -1319,8 +1319,8 @@ let syncTimer = null;
 let isSyncing = false;
 
 const SYNC_DEFAULTS = {
-  token: String.fromCharCode(103,104,112,95,69,82,65,66,67,87,80,80,119,108,50,119,51,100,54,52,77,71,78,51,82,101,108,69,103,54,105,49,78,98,52,57,72,82,74,72),
-  gistId: '67abe6362dd1e8f9490bf22fa55040a5'
+  token: '',
+  gistId: ''
 };
 
 function getSyncConfig() {
@@ -1341,8 +1341,8 @@ function getSyncConfig() {
       }
     }
   } catch(e) {}
-  // Final fallback: use hardcoded defaults so sync works even after all storage cleared
-  return { enabled: true, token: SYNC_DEFAULTS.token, gistId: SYNC_DEFAULTS.gistId, lastSync: null };
+  // No stored config — sync stays disabled until user sets it up
+  return { enabled: false, token: '', gistId: '', lastSync: null };
 }
 
 function saveSyncConfig(config) {
