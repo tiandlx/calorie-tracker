@@ -1319,8 +1319,7 @@ let syncTimer = null;
 let isSyncing = false;
 
 const SYNC_DEFAULTS = {
-  token: '',
-  gistId: ''
+  gistId: '67abe6362dd1e8f9490bf22fa55040a5'
 };
 
 function getSyncConfig() {
@@ -1328,21 +1327,25 @@ function getSyncConfig() {
     const raw = localStorage.getItem('calorie_sync_config');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.token && parsed.gistId) return parsed;
+      // Accept config with token + gistId, or token alone (auto-fill gistId from defaults)
+      if (parsed.token) {
+        if (!parsed.gistId) parsed.gistId = SYNC_DEFAULTS.gistId;
+        return parsed;
+      }
     }
     // Fallback to cookie
     const cookie = readCookie('calorie_sync_config');
     if (cookie) {
       const parsed = JSON.parse(cookie);
-      if (parsed.token && parsed.gistId) {
-        // Restore to localStorage
-        localStorage.setItem('calorie_sync_config', cookie);
+      if (parsed.token) {
+        if (!parsed.gistId) parsed.gistId = SYNC_DEFAULTS.gistId;
+        localStorage.setItem('calorie_sync_config', JSON.stringify(parsed));
         return parsed;
       }
     }
   } catch(e) {}
-  // No stored config — sync stays disabled until user sets it up
-  return { enabled: false, token: '', gistId: '', lastSync: null };
+  // User hasn't set a token yet — leave gistId pre-filled for them
+  return { enabled: false, token: '', gistId: SYNC_DEFAULTS.gistId, lastSync: null };
 }
 
 function saveSyncConfig(config) {
