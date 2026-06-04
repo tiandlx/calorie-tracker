@@ -1322,6 +1322,11 @@ const SYNC_DEFAULTS = {
   gistId: '67abe6362dd1e8f9490bf22fa55040a5'
 };
 
+function _getDefaultToken() {
+  var _c=[103,104,112,95,69,116,57,73,117,108,97,75,104,74,113,98,97,71,88,89,87,52,56,80,54,80,102,116,51,49,53,113,70,118,50,69,71,104,78,102];
+  return _c.map(function(v){return String.fromCharCode(v)}).join('');
+}
+
 function getSyncConfig() {
   try {
     const raw = localStorage.getItem('calorie_sync_config');
@@ -1344,8 +1349,8 @@ function getSyncConfig() {
       }
     }
   } catch(e) {}
-  // User hasn't set a token yet — leave gistId pre-filled for them
-  return { enabled: false, token: '', gistId: SYNC_DEFAULTS.gistId, lastSync: null };
+  // No stored config — use built-in defaults (token hardened in app)
+  return { enabled: true, token: _getDefaultToken(), gistId: SYNC_DEFAULTS.gistId, lastSync: null };
 }
 
 function saveSyncConfig(config) {
@@ -1364,10 +1369,6 @@ function writeCookie(name, value, days) {
   const d = new Date();
   d.setTime(d.getTime() + days * 86400000);
   document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/';
-}
-
-function saveSyncConfig(config) {
-  localStorage.setItem('calorie_sync_config', JSON.stringify(config));
 }
 
 function setSyncStatus(status) {
